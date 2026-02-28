@@ -56,6 +56,39 @@ var _ = Describe("backup integration tests", func() {
 				expectedStats5J.Collation1 = 100
 				expectedStats5J.Collation2 = 100
 			}
+			if connectionPool.Version.IsCBDB() && connectionPool.Version.AtLeast("2.1.0") {
+				// Cloudberry Database 2.1.0 introduced STATISTIC_KIND_NDV_BY_SEGMENTS (8).
+				// In this test case, due to the small data volume, this statistic is
+				// automatically placed into the 3rd slot (stakind3) by the analyze command.
+				expectedStats5I.Kind3 = backup.STATISTIC_KIND_NDV_BY_SEGMENTS
+				expectedStats5J.Kind3 = backup.STATISTIC_KIND_NDV_BY_SEGMENTS
+				expectedStats5K.Kind3 = backup.STATISTIC_KIND_NDV_BY_SEGMENTS
+
+				// Set the operator OID for this new statistic kind
+				// i (int4) uses operator 97 (=)
+				// j (text) uses operator 664 (=) and collation 100
+				// k (bool) uses operator 58 (=)
+				expectedStats5I.Operator3 = 97
+				expectedStats5J.Operator3 = 664
+				expectedStats5J.Collation3 = 100
+				expectedStats5K.Operator3 = 58
+
+				// 4 distinct rows were inserted for 'i' (int) and 'j' (text) columns
+				expectedStats5I.Values3 = []string{"4"}
+				expectedStats5J.Values3 = []string{"4"}
+
+				// Why is 'k' (bool) 3.0000000596046448 instead of 2?
+				// 1. STATISTIC_KIND_NDV_BY_SEGMENTS (8) is the SUM of local NDVs across all segments, NOT the global NDV.
+				// 2. Based on the hash distribution (using 'i' as distribution key), the rows map to segments like so:
+				//    - Seg 0 gets 3 rows: (2,b,f), (3,c,t), (4,d,f). Local NDV for 'k' on Seg 0 = 2 ('f' and 't')
+				//    - Seg 1 gets 1 row: (1,a,t). Local NDV for 'k' on Seg 1 = 1 ('t')
+				//    - Seg 2 gets 0 rows. Local NDV for 'k' on Seg 2 = 0
+				//    - Sum of Local NDVs = 2 + 1 + 0 = 3
+				// 3. The optimizer uses this to estimate intermediate rows generated during a two-stage aggregation (Partial Agg).
+				// 4. The value is stored internally as a float4 (single precision) to save space, and when retrieved,
+				//    it is converted back to double precision (float8), resulting in the slight precision loss (3.0000000596046448).
+				expectedStats5K.Values3 = []string{"3.0000000596046448"}
+			}
 
 			// The order in which the stavalues1 values is returned is not guaranteed to be deterministic
 			sort.Strings(tableAttStatsI.Values1)

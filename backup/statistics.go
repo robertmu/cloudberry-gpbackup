@@ -14,6 +14,11 @@ import (
 	"github.com/lib/pq"
 )
 
+const (
+	// STATISTIC_KIND_NDV_BY_SEGMENTS is specific to Cloudberry Database 2.1.0+
+	STATISTIC_KIND_NDV_BY_SEGMENTS = 8
+)
+
 func PrintStatisticsStatements(statisticsFile *utils.FileWithByteCount, tocfile *toc.TOC, tables []Table, attStats map[uint32][]AttributeStatistic, tupleStats map[uint32]TupleStatistic) {
 	for _, table := range tables {
 		tupleQuery := GenerateTupleStatisticsQuery(table, tupleStats[table.Oid])
@@ -162,11 +167,11 @@ func generateAttributeSlotsQuery7(attStat AttributeStatistic) string {
 			realValues(attStat.Numbers3),
 			realValues(attStat.Numbers4),
 			realValues(attStat.Numbers5),
-			AnyValues(attStat.Values1, attStat.Type),
-			AnyValues(attStat.Values2, attStat.Type),
-			AnyValues(attStat.Values3, attStat.Type),
-			AnyValues(attStat.Values4, attStat.Type),
-			AnyValues(attStat.Values5, attStat.Type))
+			AnyValues(attStat.Values1, attStat.Type, attStat.Kind1),
+			AnyValues(attStat.Values2, attStat.Type, attStat.Kind2),
+			AnyValues(attStat.Values3, attStat.Type, attStat.Kind3),
+			AnyValues(attStat.Values4, attStat.Type, attStat.Kind4),
+			AnyValues(attStat.Values5, attStat.Type, attStat.Kind5))
 	}
 	return attributeQuery
 }
@@ -230,11 +235,11 @@ func generateAttributeSlotsQuery6(attStat AttributeStatistic) string {
 			realValues(attStat.Numbers3),
 			realValues(attStat.Numbers4),
 			realValues(attStat.Numbers5),
-			AnyValues(attStat.Values1, attStat.Type),
-			AnyValues(attStat.Values2, attStat.Type),
-			AnyValues(attStat.Values3, attStat.Type),
-			AnyValues(attStat.Values4, attStat.Type),
-			AnyValues(attStat.Values5, attStat.Type))
+			AnyValues(attStat.Values1, attStat.Type, attStat.Kind1),
+			AnyValues(attStat.Values2, attStat.Type, attStat.Kind2),
+			AnyValues(attStat.Values3, attStat.Type, attStat.Kind3),
+			AnyValues(attStat.Values4, attStat.Type, attStat.Kind4),
+			AnyValues(attStat.Values5, attStat.Type, attStat.Kind5))
 	}
 	return attributeQuery
 }
@@ -286,10 +291,10 @@ func generateAttributeSlotsQuery4(attStat AttributeStatistic) string {
 			realValues(attStat.Numbers2),
 			realValues(attStat.Numbers3),
 			realValues(attStat.Numbers4),
-			AnyValues(attStat.Values1, attStat.Type),
-			AnyValues(attStat.Values2, attStat.Type),
-			AnyValues(attStat.Values3, attStat.Type),
-			AnyValues(attStat.Values4, attStat.Type))
+			AnyValues(attStat.Values1, attStat.Type, attStat.Kind1),
+			AnyValues(attStat.Values2, attStat.Type, attStat.Kind2),
+			AnyValues(attStat.Values3, attStat.Type, attStat.Kind3),
+			AnyValues(attStat.Values4, attStat.Type, attStat.Kind4))
 	}
 	return attributeQuery
 }
@@ -317,10 +322,15 @@ func realValues(reals pq.StringArray) string {
 /*
  * A given type is not guaranteed to have a corresponding array type, so we need
  * to use array_in() instead of casting to an array.
+ * STATISTIC_KIND_NDV_BY_SEGMENTS (8) is a special case which stores an array of
+ * int8 values rather than the column's native type.
  */
-func AnyValues(any pq.StringArray, typ string) string {
+func AnyValues(any pq.StringArray, typ string, kind int) string {
 	if len(any) > 0 {
+		if kind == STATISTIC_KIND_NDV_BY_SEGMENTS {
+			return fmt.Sprintf(`array_in(%s, 'int8'::regtype::oid, -1)`, SliceToPostgresArray(any))
+		}
 		return fmt.Sprintf(`array_in(%s, '%s'::regtype::oid, -1)`, SliceToPostgresArray(any), typ)
 	}
-	return fmt.Sprintf("NULL")
+	return "NULL"
 }
